@@ -34,6 +34,14 @@ _state = {
 # restart mid-session is an acceptable simplification.
 _open_violation_index = {"process": None, "domain": None}
 
+# Set by get_status() when it notices a session's timer ran out and
+# self-finalizes it — the window-polling loop (which calls get_status() every
+# tick regardless of whether anything else is polling /status) drains this to
+# fire a "session complete" tray notification exactly once. Manual ends (tray
+# "End Session", POST /session/end) notify their own caller directly and never
+# touch this.
+_pending_natural_end = {"value": None}
+
 # Core Windows shell / system processes that are never treated as violations,
 # regardless of the session whitelist. Without this, enforcement fights the
 # taskbar, alt-tab, wifi/time flyouts, and the shell itself — and minimizing
@@ -214,7 +222,7 @@ def get_status():
             end_time = datetime.fromisoformat(_state["endTime"])
             seconds_remaining = max(0, int((end_time - datetime.now()).total_seconds()))
             if seconds_remaining == 0:
-                _finalize_to_history_locked(end_time)
+                _pending_natural_end["value"] = _finalize_to_history_locked(end_time)
         return {
             "isActive": _state["isActive"],
             "secondsRemaining": seconds_remaining,
@@ -225,6 +233,16 @@ def get_status():
             "violationLog": list(_state["violationLog"]),
             "lastAcceptableProcess": _state["lastAcceptableProcess"],
         }
+
+
+def pop_pending_natural_end():
+    """Returns (and clears) the summary queued by get_status() the last time
+    it self-finalized an expired session, or None if no natural end is
+    pending. Meant to be polled once per window_tracker tick."""
+    with _lock:
+        summary = _pending_natural_end["value"]
+        _pending_natural_end["value"] = None
+        return summary
 
 
 def is_whitelisted(process_name):

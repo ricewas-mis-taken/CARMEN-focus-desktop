@@ -48,13 +48,31 @@ def list_running_apps():
     return list(apps.values())
 
 
-def run_polling_loop(stop_event):
-    """Runs until stop_event is set. Intended to be launched in its own thread."""
+def run_polling_loop(stop_event, on_session_end=None):
+    """Runs until stop_event is set. Intended to be launched in its own thread.
+
+    on_session_end(summary), if given, is called once whenever a session's
+    timer runs out naturally (as opposed to being ended manually via the tray
+    menu or POST /session/end, which notify their own caller directly). This
+    loop calls get_status() every tick specifically so that self-finalization
+    happens here even if nothing else (browser extension, lock overlay) is
+    polling /status — otherwise a session could expire with no notification
+    ever firing.
+    """
     last_flagged_process = None
 
     while not stop_event.is_set():
         try:
-            if session_manager.is_active():
+            status = session_manager.get_status()
+
+            pending = session_manager.pop_pending_natural_end()
+            if pending is not None and on_session_end is not None:
+                try:
+                    on_session_end(pending)
+                except Exception:
+                    pass
+
+            if status["isActive"]:
                 window = get_active_window()
                 process_name = window["process_name"]
                 pid = window["pid"]

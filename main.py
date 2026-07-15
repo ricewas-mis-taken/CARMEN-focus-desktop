@@ -19,8 +19,21 @@ def main():
     api_thread = threading.Thread(target=run_server, daemon=True)
     api_thread.start()
 
+    def on_quit():
+        stop_event.set()
+
+    # Built before the polling thread starts so the polling loop can notify
+    # through it when a session's timer runs out naturally (see
+    # window_tracker.run_polling_loop's on_session_end).
+    icon = tray.build_tray_icon(on_quit)
+
+    def on_session_end(summary):
+        icon.notify(tray.format_end_summary(summary), title="Focus session complete")
+
     polling_thread = threading.Thread(
-        target=window_tracker.run_polling_loop, args=(stop_event,), daemon=True
+        target=window_tracker.run_polling_loop,
+        args=(stop_event, on_session_end),
+        daemon=True,
     )
     polling_thread.start()
 
@@ -29,10 +42,7 @@ def main():
     # new Tk() per popup.
     gui_thread.start()
 
-    def on_quit():
-        stop_event.set()
-
-    tray.run_tray(on_quit)
+    icon.run()
 
     os._exit(0)
 

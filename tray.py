@@ -32,7 +32,7 @@ def _format_status_text():
     )
 
 
-def _format_end_summary(summary):
+def format_end_summary(summary):
     log = summary.get("violationLog", [])
     if not log:
         return "Session ended. No violations — nice work."
@@ -61,7 +61,7 @@ def build_tray_icon(on_quit):
 
     def on_end_session(icon, item):
         summary = session_manager.end_session()
-        icon.notify(_format_end_summary(summary), title="Carmen Focus")
+        icon.notify(format_end_summary(summary), title="Carmen Focus")
 
     def on_view_history(icon, item):
         history_gui.open_history_viewer()
@@ -81,9 +81,3 @@ def build_tray_icon(on_quit):
 
     icon = pystray.Icon("carmen_focus", icon_image, "Carmen Focus", menu)
     return icon
-
-
-def run_tray(on_quit):
-    """Runs the tray icon loop. Blocks — must be called from the main thread."""
-    icon = build_tray_icon(on_quit)
-    icon.run()
