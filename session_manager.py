@@ -24,6 +24,11 @@ _state = {
     "violationCount": 0,
     "violationLog": [],
     "lastAcceptableProcess": None,
+    "domainWhitelistAdditions": [],
+    "processWhitelistAdditions": [],
+    "isPaused": False,
+    "pausedAt": None,
+    "frozenSecondsRemaining": None,
 }
 
 # Index into violationLog of the most recent still-unresolved violation of
@@ -167,24 +172,36 @@ def start_session(duration_minutes, lock_mode, process_whitelist, domain_whiteli
         _state["violationCount"] = 0
         _state["violationLog"] = []
         _state["lastAcceptableProcess"] = None
+        _state["domainWhitelistAdditions"] = []
+        _state["processWhitelistAdditions"] = []
+        _state["isPaused"] = False
+        _state["pausedAt"] = None
+        _state["frozenSecondsRemaining"] = None
         _open_violation_index["process"] = None
         _open_violation_index["domain"] = None
         _save()
     return get_status()
 
 
-def end_session():
+def end_session(end_type="manual", reason=None):
     """Ends the session and returns its final status, including the full
     violationLog accumulated during the session — this is the one place a
     caller (e.g. the tray's "End Session") can see what happened before the
     counters reset for the next session. Also files the completed session
-    into session_history.json (see _finalize_to_history_locked)."""
+    into session_history.json (see _finalize_to_history_locked).
+
+    end_type distinguishes how the session ended in history/UI: "manual" for
+    a plain POST /session/end (e.g. from the browser extension), "nuclear"
+    for the tray's "End Session (Nuclear)" button specifically, or "natural"
+    for a session that just ran out its own clock (see get_status()). reason
+    is the free-text explanation collected from the tray's nuclear-end
+    dialog — None for every other end_type."""
     with _lock:
-        result = _finalize_to_history_locked(datetime.now())
+        result = _finalize_to_history_locked(datetime.now(), end_type=end_type, reason=reason)
     return result
 
 
-def _finalize_to_history_locked(now):
+def _finalize_to_history_locked(now, end_type="natural", reason=None):
     """Records the current session into session_history.json and resets
     in-memory state for the next one. Must be called with _lock held.
     Shared by end_session() and get_status()'s natural-expiry path, so a
@@ -203,6 +220,8 @@ def _finalize_to_history_locked(now):
     lock_mode = _state["lockMode"]
     process_whitelist = list(_state["processWhitelist"])
     domain_whitelist = list(_state["domainWhitelist"])
+    domain_whitelist_additions = list(_state["domainWhitelistAdditions"])
+    process_whitelist_additions = list(_state["processWhitelistAdditions"])
     start_time = _state["startTime"]
 
     if was_active:
@@ -210,11 +229,15 @@ def _finalize_to_history_locked(now):
             {
                 "startTime": start_time,
                 "endTime": now.isoformat(),
+                "endType": end_type,
+                "reason": reason,
                 "lockMode": lock_mode,
                 "processWhitelist": process_whitelist,
                 "domainWhitelist": domain_whitelist,
                 "violationCount": summary_count,
                 "violationLog": summary_log,
+                "domainWhitelistAdditions": domain_whitelist_additions,
+                "processWhitelistAdditions": process_whitelist_additions,
             }
         )
 
@@ -224,6 +247,11 @@ def _finalize_to_history_locked(now):
     _state["violationCount"] = 0
     _state["violationLog"] = []
     _state["lastAcceptableProcess"] = None
+    _state["domainWhitelistAdditions"] = []
+    _state["processWhitelistAdditions"] = []
+    _state["isPaused"] = False
+    _state["pausedAt"] = None
+    _state["frozenSecondsRemaining"] = None
     _open_violation_index["process"] = None
     _open_violation_index["domain"] = None
     _save()
@@ -231,33 +259,100 @@ def _finalize_to_history_locked(now):
     return {
         "isActive": False,
         "secondsRemaining": 0,
+        "endType": end_type,
+        "reason": reason,
         "lockMode": lock_mode,
         "processWhitelist": process_whitelist,
         "domainWhitelist": domain_whitelist,
         "violationCount": summary_count,
         "lastAcceptableProcess": None,
         "violationLog": summary_log,
+        "domainWhitelistAdditions": domain_whitelist_additions,
+        "processWhitelistAdditions": process_whitelist_additions,
     }
 
 
 def get_status():
     with _lock:
-        seconds_remaining = 0
-        if _state["isActive"] and _state["endTime"]:
-            end_time = datetime.fromisoformat(_state["endTime"])
-            seconds_remaining = max(0, int((end_time - datetime.now()).total_seconds()))
-            if seconds_remaining == 0:
-                _pending_natural_end["value"] = _finalize_to_history_locked(end_time)
-        return {
-            "isActive": _state["isActive"],
-            "secondsRemaining": seconds_remaining,
-            "lockMode": _state["lockMode"],
-            "processWhitelist": list(_state["processWhitelist"]),
-            "domainWhitelist": list(_state["domainWhitelist"]),
-            "violationCount": _state["violationCount"],
-            "violationLog": list(_state["violationLog"]),
-            "lastAcceptableProcess": _state["lastAcceptableProcess"],
-        }
+        return _get_status_locked()
+
+
+def _get_status_locked():
+    """Body of get_status(), for callers (pause_session()/resume_session())
+    that already hold _lock — _lock isn't reentrant, so get_status() itself
+    can't be called from inside another with _lock: block."""
+    seconds_remaining = 0
+    if _state["isActive"] and _state["isPaused"]:
+        # Timer is frozen — return the exact value it was frozen at instead
+        # of recomputing from endTime, and never self-finalize a "natural
+        # end" while paused (the deadline math below is the only thing that
+        # can fire that, and it's skipped entirely here).
+        seconds_remaining = _state["frozenSecondsRemaining"] or 0
+    elif _state["isActive"] and _state["endTime"]:
+        end_time = datetime.fromisoformat(_state["endTime"])
+        seconds_remaining = max(0, int((end_time - datetime.now()).total_seconds()))
+        if seconds_remaining == 0:
+            _pending_natural_end["value"] = _finalize_to_history_locked(end_time, end_type="natural")
+    return {
+        "isActive": _state["isActive"],
+        "isPaused": _state["isPaused"],
+        "secondsRemaining": seconds_remaining,
+        "lockMode": _state["lockMode"],
+        "processWhitelist": list(_state["processWhitelist"]),
+        "domainWhitelist": list(_state["domainWhitelist"]),
+        "violationCount": _state["violationCount"],
+        "violationLog": list(_state["violationLog"]),
+        "lastAcceptableProcess": _state["lastAcceptableProcess"],
+        "domainWhitelistAdditions": list(_state["domainWhitelistAdditions"]),
+        "processWhitelistAdditions": list(_state["processWhitelistAdditions"]),
+    }
+
+
+def pause_session():
+    """Freezes the countdown only — isActive, lockMode, whitelists, and
+    violation tracking are all untouched, so lock enforcement keeps working
+    exactly as before while paused. Idempotent: no active session, or a
+    session that's already paused, just returns the current status unchanged.
+
+    The frozen secondsRemaining is computed once here and stored, rather than
+    just remembering pausedAt, so get_status() can return the exact same
+    number on every poll without redoing "now vs endTime" math that would
+    have to account for the pause itself."""
+    with _lock:
+        if not _state["isActive"] or _state["isPaused"]:
+            return _get_status_locked()
+
+        now = datetime.now()
+        end_time = datetime.fromisoformat(_state["endTime"])
+        seconds_remaining = max(0, int((end_time - now).total_seconds()))
+
+        _state["isPaused"] = True
+        _state["pausedAt"] = now.isoformat()
+        _state["frozenSecondsRemaining"] = seconds_remaining
+        _state["violationLog"].append({"kind": "pause", "timestamp": now.isoformat()})
+        _save()
+        return _get_status_locked()
+
+
+def resume_session():
+    """Resumes the countdown from exactly the secondsRemaining it was frozen
+    at — shifts endTime forward by however long the pause lasted, rather than
+    recomputing from the original start time, so the pause duration never
+    counts against the timer. Idempotent: no active session, or a session
+    that isn't paused, just returns the current status unchanged."""
+    with _lock:
+        if not _state["isActive"] or not _state["isPaused"]:
+            return _get_status_locked()
+
+        now = datetime.now()
+        frozen_remaining = _state["frozenSecondsRemaining"] or 0
+        _state["endTime"] = (now + timedelta(seconds=frozen_remaining)).isoformat()
+        _state["isPaused"] = False
+        _state["pausedAt"] = None
+        _state["frozenSecondsRemaining"] = None
+        _state["violationLog"].append({"kind": "resume", "timestamp": now.isoformat()})
+        _save()
+        return _get_status_locked()
 
 
 def pop_pending_natural_end():
@@ -312,9 +407,16 @@ def record_acceptable(process_name):
     tab, which is tracked/resolved independently via resolve_domain_violation)."""
     with _lock:
         now = datetime.now()
+        had_open_violation = _open_violation_index["process"] is not None
         _resolve_open_violation_locked("process", now)
+        changed = had_open_violation or _state["lastAcceptableProcess"] != process_name
         _state["lastAcceptableProcess"] = process_name
-        _save()
+        # This is called on every poll tick (every 1.5s) for as long as the
+        # user stays on an allowed app — without this guard, a whole session
+        # spent on-task would rewrite session_state.json to disk nonstop for
+        # no reason, since nothing here actually changed after the first tick.
+        if changed:
+            _save()
 
 
 def record_violation(process_name):
@@ -368,6 +470,61 @@ def resolve_domain_violation():
     with _lock:
         _resolve_open_violation_locked("domain", datetime.now())
         _save()
+
+
+def add_domain_to_whitelist(domain, reason):
+    """Adds domain to domainWhitelist mid-session (e.g. via POST
+    /whitelist/domains/add) and logs why in domainWhitelistAdditions — the
+    audit trail of every site let in outside the original whitelist picked
+    at session start. Takes effect immediately: the browser extension
+    re-reads domainWhitelist from GET /status on every tab check, so there's
+    no need to restart the session for the unblock to apply.
+
+    Skips the append (but still logs the addition) if domain is already on
+    the whitelist, case-insensitive — same "don't grow the list with
+    duplicates" behavior as the rest of this module's whitelist handling."""
+    with _lock:
+        now = datetime.now()
+        existing_lower = {d.lower() for d in _state["domainWhitelist"]}
+        if domain.lower() not in existing_lower:
+            _state["domainWhitelist"].append(domain)
+
+        addition = {
+            "domain": domain,
+            "reason": reason,
+            "timestamp": now.isoformat(),
+        }
+        _state["domainWhitelistAdditions"].append(addition)
+        _save()
+        return list(_state["domainWhitelist"]), addition
+
+
+def add_process_to_whitelist(process_name, reason):
+    """Adds process_name to processWhitelist mid-session (e.g. via the
+    "Pick Apps to Whitelist" picker, opened while a session is already
+    running) and logs why in processWhitelistAdditions — the audit trail of
+    every app let in outside the original whitelist picked at session
+    start. Takes effect immediately: is_whitelisted() and the window-polling
+    loop both read processWhitelist straight off this same in-memory state,
+    so there's no need to restart the session for the unblock to apply.
+
+    Skips the append (but still logs the addition) if process_name is
+    already on the whitelist, case-insensitive — same "don't grow the list
+    with duplicates" behavior as add_domain_to_whitelist()."""
+    with _lock:
+        now = datetime.now()
+        existing_lower = {p.lower() for p in _state["processWhitelist"]}
+        if process_name.lower() not in existing_lower:
+            _state["processWhitelist"].append(process_name)
+
+        addition = {
+            "process": process_name,
+            "reason": reason,
+            "timestamp": now.isoformat(),
+        }
+        _state["processWhitelistAdditions"].append(addition)
+        _save()
+        return list(_state["processWhitelist"]), addition
 
 
 def get_lock_mode():

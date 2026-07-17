@@ -5,12 +5,15 @@ Endpoints:
     GET  /status
     POST /session/start
     POST /session/end
+    POST /session/pause
+    POST /session/resume
     POST /violation
     POST /violation/resolved
     GET  /history
     GET  /apps/running
     GET  /apps/installed
     POST /whitelist/apps
+    POST /whitelist/domains/add
 
 This is the shared source of truth for focus session state: both this
 desktop app and the separate browser extension read/write the same session
@@ -89,6 +92,23 @@ def session_end():
     return jsonify(result)
 
 
+@app.route("/session/pause", methods=["POST"])
+def session_pause():
+    """Freezes the countdown only — the session stays active and lock
+    enforcement (handled entirely by the extension/window_tracker, not this
+    endpoint) is untouched. Idempotent: no active session, or a session
+    that's already paused, just returns the current status unchanged."""
+    return jsonify(session_manager.pause_session())
+
+
+@app.route("/session/resume", methods=["POST"])
+def session_resume():
+    """Resumes the countdown from exactly where it was frozen. Idempotent:
+    no active session, or a session that isn't paused, just returns the
+    current status unchanged."""
+    return jsonify(session_manager.resume_session())
+
+
 @app.route("/violation", methods=["POST"])
 def violation():
     """Called by the browser extension whenever the active tab's domain
@@ -154,6 +174,30 @@ def whitelist_apps():
     cfg["processWhitelist"] = list(process_whitelist)
     config.save_config(cfg)
     return jsonify({"processWhitelist": cfg["processWhitelist"]})
+
+
+@app.route("/whitelist/domains/add", methods=["POST"])
+def whitelist_domains_add():
+    """Adds a single domain to the active session's domainWhitelist, with a
+    required reason logged for the audit trail (session_manager's
+    domainWhitelistAdditions) — for unblocking a site mid-session without
+    ending it. Only makes sense while a session is actually running."""
+    if not session_manager.is_active():
+        return jsonify({"error": "no active session"}), 400
+
+    body = request.get_json(force=True, silent=True) or {}
+    domain = body.get("domain")
+    reason = body.get("reason")
+
+    if not isinstance(domain, str) or not domain.strip():
+        return jsonify({"error": "domain must be a non-empty string"}), 400
+    if not isinstance(reason, str) or not reason.strip():
+        return jsonify({"error": "reason must be a non-empty string"}), 400
+
+    domain_whitelist, addition = session_manager.add_domain_to_whitelist(
+        domain.strip(), reason.strip()
+    )
+    return jsonify({"domainWhitelist": domain_whitelist, "addition": addition})
 
 
 def run_server():
