@@ -30,7 +30,11 @@ every 1.5 seconds, and shows a tray icon. No session is enforced until you start
 one — either via the tray's "Start Focus Session" dialog, or `POST /session/start`
 directly (curl, the browser extension, or eventually Carmen's voice interface).
 The tray menu also lets you pick your whitelist, check status, view past sessions,
-end a session immediately, or quit the app.
+pause/resume the countdown, end a session immediately, or quit the app. The
+"Pause Session"/"Resume Session" and "End Session (Nuclear)" items only appear
+in the menu while a session is actually active — pause/resume each log a
+timestamped entry in that session's log, visible in the "Session History"
+viewer alongside violations and whitelist additions.
 
 Every completed session (ended manually or by running out the clock) is appended
 to `session_history.json` — see "Session history" below.
