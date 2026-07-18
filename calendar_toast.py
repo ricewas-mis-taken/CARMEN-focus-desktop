@@ -41,10 +41,10 @@ def show_toast(title, body, buttons=None, on_action=None):
     """buttons: optional list of (argument, label) pairs rendered as toast
     action buttons. on_action(argument), if given, is called when the user
     clicks a button or the toast body itself (argument is "" for a body
-    click) — invoked on a WinRT callback thread, NOT the Tk GUI thread or
-    calendar_store's lock-owning thread, so callers must route any Tk work
-    through gui_thread.run_on_gui_thread and treat store access as already
-    thread-safe (it is — calendar_store guards its own lock).
+    click) — invoked on a WinRT callback thread, NOT the Qt GUI thread or
+    calendar_store's lock-owning thread, so callers must route any Qt work
+    through qt_gui_thread.run_on_gui_thread and treat store access as
+    already thread-safe (it is — calendar_store guards its own lock).
 
     Every failure here is logged and swallowed rather than raised — this is
     called from the background scheduler loop, which must never die from a

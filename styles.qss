@@ -1,0 +1,206 @@
+/* Carmen Focus — Qt visual language.
+   Soft off-white content background, muted/desaturated accent colors,
+   8-12px rounded corners, an 8px/16px spacing scale, Segoe UI Variable
+   (falling back to Segoe UI) with a clear size hierarchy. Drop shadows are
+   NOT here — QSS has no box-shadow equivalent; those are applied in Python
+   per-widget via QGraphicsDropShadowEffect (see qt_ui/month_view.py,
+   qt_ui/day_view.py). */
+
+* {
+    font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+}
+
+QWidget#ContentArea {
+    background: #F7F7F8;
+}
+
+QWidget#ContentArea QLabel {
+    color: #1F2328;
+    font-size: 13px;
+}
+
+/* Standalone popup windows (dialogs, pickers, viewers) that aren't part of
+   the main window's ContentArea -- the enforcer overlay and the delete-undo
+   toast intentionally keep their own dark styling (always-on-top over
+   arbitrary apps) and don't use this class. */
+QWidget#PopupBg {
+    background: #F7F7F8;
+}
+
+QWidget#PopupBg QLabel,
+QWidget#PopupBg QCheckBox,
+QWidget#PopupBg QRadioButton {
+    color: #1F2328;
+    font-size: 13px;
+}
+
+QWidget#PopupBg QLineEdit,
+QWidget#PopupBg QTextEdit,
+QWidget#PopupBg QComboBox,
+QWidget#PopupBg QListWidget {
+    background: #FAFBFC;
+    border: 1px solid #E3E5E9;
+    border-radius: 8px;
+    padding: 4px 6px;
+    color: #1F2328;
+}
+
+QWidget#PopupBg QPushButton {
+    background: #F1F3F6;
+    color: #1F2328;
+    border: none;
+    border-radius: 8px;
+    padding: 6px 14px;
+}
+
+QWidget#PopupBg QPushButton:hover {
+    background: #E6E9EE;
+}
+
+QWidget#PopupBg QPushButton.AccentButton {
+    background: #5B8DEF;
+    color: white;
+    font-weight: 600;
+}
+
+QWidget#PopupBg QPushButton.AccentButton:hover {
+    background: #4A7CDE;
+}
+
+QWidget#Sidebar {
+    background: #20242C;
+}
+
+QLabel#SidebarTitle {
+    color: #E8EAED;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 22px 18px 20px 18px;
+}
+
+QPushButton.NavButton {
+    background: transparent;
+    color: #C7CAD3;
+    border: none;
+    border-radius: 8px;
+    text-align: left;
+    padding: 9px 14px;
+    font-size: 13px;
+    margin: 0px 12px;
+}
+
+QPushButton.NavButton:hover {
+    background: #2B3140;
+}
+
+QPushButton.NavButton:checked {
+    background: #3A4256;
+    color: #FFFFFF;
+    font-weight: 600;
+}
+
+QPushButton.SecondaryButton {
+    background: #F1F3F6;
+    color: #1F2328;
+    border: none;
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 12px;
+}
+
+QPushButton.SecondaryButton:hover {
+    background: #E6E9EE;
+}
+
+QPushButton.AccentButton {
+    background: #5B8DEF;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 7px 16px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QPushButton.AccentButton:hover {
+    background: #4A7CDE;
+}
+
+QLabel#MonthLabel {
+    font-size: 24px;
+    font-weight: 700;
+    color: #1F2328;
+}
+
+QLineEdit#SearchBox {
+    background: #FAFBFC;
+    border: 1px solid #E3E5E9;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 13px;
+    color: #1F2328;
+}
+
+QLineEdit#SearchBox:focus {
+    border: 1px solid #5B8DEF;
+}
+
+QFrame.DayCell {
+    background: #FFFFFF;
+    border: 1px solid #ECEEF1;
+    border-radius: 10px;
+}
+
+QFrame.DayCell[isToday="true"] {
+    background: #EAF2FF;
+    border: 1px solid #5B8DEF;
+}
+
+QFrame.DayCell[isSelected="true"] {
+    background: #F1F3F6;
+    border: 1px solid #C9CCD3;
+}
+
+QFrame.DayCell[inMonth="false"] {
+    background: #FAFBFC;
+}
+
+QFrame.DayCell:hover {
+    border: 1px solid #5B8DEF;
+}
+
+QLabel.DayNumber {
+    color: #1F2328;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 4px 6px;
+}
+
+QLabel.DayNumber[isToday="true"] {
+    color: #5B8DEF;
+}
+
+QLabel.DayNumber[inMonth="false"] {
+    color: #C7CAD3;
+}
+
+QLabel.WeekdayHeader {
+    color: #8A8F98;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 8px 0px;
+}
+
+QLabel.EventPill {
+    color: white;
+    font-size: 11px;
+    border-radius: 8px;
+    padding: 2px 8px;
+    margin: 1px 4px;
+}
+
+QLabel.OverflowLabel {
+    color: #8A8F98;
+    font-size: 10px;
+    padding: 0px 6px;
+}

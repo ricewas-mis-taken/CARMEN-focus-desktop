@@ -6,3 +6,6 @@ pystray
 pillow
 python-dateutil
 winsdk
+PySide6
+pytest
+pytest-qt

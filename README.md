@@ -378,8 +378,9 @@ does **not** create a phantom entry.
 
 ## Whitelist picker & start-session dialog (tray GUI)
 
-Picking a whitelist and starting a session both happen through native Tkinter
-windows (`picker_gui.py`), not a web page — no browser round-trip:
+Picking a whitelist and starting a session both happen through native Qt
+(PySide6) windows (`picker_gui.py` / `qt_ui/picker_dialogs.py`), not a web
+page — no browser round-trip:
 
 - Tray → **"Pick Apps to Whitelist"** opens a scrollable checkbox list built from
   `installed_apps.list_installed_apps()` (same data as `GET /apps/installed`).
@@ -411,8 +412,8 @@ too, for driving the same picks programmatically (e.g. from Carmen).
 
 ## Session history (tray GUI)
 
-Tray → **"Session History"** opens a native Tkinter window (`history_gui.py`)
-listing every completed session, newest first, reading the same
+Tray → **"Session History"** opens a native Qt window (`history_gui.py` /
+`qt_ui/history_viewer.py`) listing every completed session, newest first, reading the same
 `session_history.json` that `GET /history` returns. Each session is rendered as
 a block:
 
@@ -500,7 +501,7 @@ helper processes, `GPUView.exe`) and Git for Windows' own bundled launchers
 
 ### Where installed apps come from
 
-`installed_apps.list_installed_apps()` (used by both the Tkinter picker and
+`installed_apps.list_installed_apps()` (used by both the Qt picker and
 `GET /apps/installed`) combines two discovery sources so the picker isn't
 limited to whatever happens to be running:
 

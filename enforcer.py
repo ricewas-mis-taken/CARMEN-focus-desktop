@@ -1,13 +1,11 @@
 """Soft/hard lock enforcement actions."""
-import time
-import tkinter as tk
-
 import psutil
 import win32con
 import win32gui
 import win32process
 
-import gui_thread
+import qt_gui_thread
+import qt_ui.enforcer_overlay as enforcer_overlay
 import session_manager
 
 
@@ -107,174 +105,27 @@ def _find_window_by_process_name(process_name):
 
 def _show_lock_overlay(message, duration_ms, offending_process_name=None):
     """Shows a small always-on-top, borderless popup for duration_ms while a
-    green progress bar fills, then closes automatically. It repeatedly lifts
-    and refocuses itself so it's hard to ignore, but deliberately does not
-    take a system-wide input grab — that would freeze every other running
-    app (any background exe's window, tray flyouts, etc.), not just the
+    progress bar fills, then closes automatically. It repeatedly raises and
+    refocuses itself so it's hard to ignore, but deliberately does not take
+    a system-wide input grab -- that would freeze every other running app
+    (any background exe's window, tray flyouts, etc.), not just the
     offending one.
 
-    Built as a Toplevel on the single shared GUI-thread root (gui_thread.py)
-    rather than its own Tk() in its own thread — two Tk() roots alive in two
-    different threads at once (e.g. this overlay firing while the whitelist
-    picker is open) crashes the whole process with a fatal Tcl error, so all
-    popups share one root/thread instead.
+    Built on the Qt main thread via qt_gui_thread.run_on_gui_thread() rather
+    than constructed here directly -- Qt widgets, like the Tk widgets this
+    replaced, may only be touched from the thread that owns the
+    QApplication (this app's main thread; see main.py), and this function
+    runs on window_tracker's polling thread instead.
 
-    Guarded two ways against ever getting stuck open: the normal
-    tick-driven close, and a backup `.after()` timer.
+    Guarded two ways against ever getting stuck open: the overlay's own
+    tick-driven close, and a backup timer -- see qt_ui/enforcer_overlay.py.
 
-    offending_process_name, when known, adds a "Whitelist" button — lets the
-    user let that exe through for the rest of the session without ending
-    hard/soft lock enforcement entirely, same as the "Pick Apps to
-    Whitelist" tray flow, just reachable from the moment of redirect itself.
+    offending_process_name, when known, adds a "Whitelist" button -- lets
+    the user let that exe through for the rest of the session without
+    ending hard/soft lock enforcement entirely, same as the "Pick Apps to
+    Whitelist" tray flow, just reachable from the moment of redirect
+    itself.
     """
-    gui_thread.run_on_gui_thread(
-        lambda root: _build_overlay(root, message, duration_ms, offending_process_name)
+    qt_gui_thread.run_on_gui_thread(
+        lambda: enforcer_overlay.build_overlay(message, duration_ms, offending_process_name)
     )
-
-
-def _build_overlay(root, message, duration_ms, offending_process_name=None):
-    width, height = 380, 150
-    if offending_process_name:
-        height += 40
-    bar_width = width - 40
-
-    win = tk.Toplevel(root)
-    win.title("Carmen Focus")
-    win.overrideredirect(True)
-    win.attributes("-topmost", True)
-    win.configure(bg="#1e1e1e")
-
-    screen_width = win.winfo_screenwidth()
-    screen_height = win.winfo_screenheight()
-    x = (screen_width - width) // 2
-    y = (screen_height - height) // 2
-    win.geometry(f"{width}x{height}+{x}+{y}")
-
-    tk.Label(
-        win, text=message, font=("Segoe UI", 11), wraplength=340,
-        bg="#1e1e1e", fg="white", justify="center",
-    ).pack(pady=(18, 6))
-
-    time_label = tk.Label(win, font=("Segoe UI", 9), bg="#1e1e1e", fg="#aaaaaa")
-    time_label.pack()
-
-    bar_bg = tk.Frame(win, bg="#3a3a3a", height=8, width=bar_width)
-    bar_bg.pack(pady=(14, 0))
-    bar_bg.pack_propagate(False)
-    bar_fill = tk.Frame(bar_bg, bg="#2ecc71", height=8, width=0)
-    bar_fill.place(x=0, y=0, relheight=1, width=0)
-
-    state = {"closed": False}
-
-    def close():
-        if state["closed"]:
-            return
-        state["closed"] = True
-        try:
-            win.destroy()
-        except Exception:
-            pass
-
-    if offending_process_name:
-        def on_whitelist_click():
-            # Closing this overlay first, not just hiding it — the reason
-            # dialog below is a plain Toplevel too, and this popup's own
-            # lift()/focus_force() tick would otherwise keep stealing focus
-            # back from it every 50ms.
-            close()
-            _build_whitelist_reason_dialog(root, offending_process_name)
-
-        tk.Button(
-            win, text="Whitelist", command=on_whitelist_click,
-            bg="#3a3a3a", fg="white", relief="flat", padx=10, pady=3,
-        ).pack(pady=(10, 0))
-
-    # Hard safety net independent of the tick loop below — guarantees the
-    # popup closes even if something in tick() raises.
-    win.after(duration_ms + 1000, close)
-
-    start = time.time()
-
-    def tick():
-        if state["closed"]:
-            return
-        elapsed_ms = (time.time() - start) * 1000
-        fraction = min(1.0, elapsed_ms / duration_ms)
-        bar_fill.place(width=int(bar_width * fraction))
-
-        status = session_manager.get_status()
-        minutes, seconds = divmod(status["secondsRemaining"], 60)
-        time_label.config(text=f"Time remaining: {minutes}m {seconds}s")
-
-        # Keep this popup on top of the screen without grabbing system-wide
-        # input — a global grab would freeze every other running app (any
-        # background exe's window, tray flyouts, etc.), not just the
-        # offending one. Repeatedly lifting/re-focusing just this window
-        # keeps it hard to ignore while leaving everything else responsive.
-        try:
-            win.lift()
-            win.focus_force()
-        except Exception:
-            pass
-
-        if fraction >= 1.0:
-            close()
-            return
-        win.after(50, tick)
-
-    tick()
-
-
-def _build_whitelist_reason_dialog(root, process_name):
-    """Lets the whitelist-from-redirect flow still require a reason and still
-    log it — same audit trail as the tray's "Pick Apps to Whitelist" picker
-    (session_manager.add_process_to_whitelist -> processWhitelistAdditions),
-    just reachable straight from the redirect popup instead of digging
-    through the tray menu mid-session."""
-    win = tk.Toplevel(root)
-    win.title("Carmen Focus — Whitelist App")
-    win.geometry("360x180")
-    win.attributes("-topmost", True)
-
-    tk.Label(
-        win,
-        text=f"Whitelist {process_name} for the rest of this session — why?",
-        font=("Segoe UI", 10),
-        justify="center",
-        wraplength=320,
-        pady=10,
-    ).pack()
-
-    reason_var = tk.StringVar(master=win)
-    entry = tk.Entry(win, textvariable=reason_var, width=40)
-    entry.pack(pady=(0, 6))
-    entry.focus_set()
-
-    status_label = tk.Label(win, text="", font=("Segoe UI", 9), fg="#c62828")
-    status_label.pack()
-
-    def confirm():
-        reason = reason_var.get().strip()
-        if not reason:
-            status_label.config(text="Enter a reason before whitelisting.")
-            return
-        _, addition = session_manager.add_process_to_whitelist(process_name, reason)
-        if addition is None:
-            # Session ended (naturally, nuclear, or via the API) in the gap
-            # between this popup opening and the user confirming — nothing
-            # to whitelist anymore, and applying it anyway would silently
-            # bleed into whatever session starts next (see
-            # add_process_to_whitelist's docstring).
-            status_label.config(text="Session already ended — nothing to whitelist.")
-            return
-        win.destroy()
-
-    def cancel():
-        win.destroy()
-
-    button_frame = tk.Frame(win)
-    button_frame.pack(pady=14)
-    tk.Button(button_frame, text="Whitelist", command=confirm).pack(side="left", padx=6)
-    tk.Button(button_frame, text="Cancel", command=cancel).pack(side="left", padx=6)
-
-    entry.bind("<Return>", lambda e: confirm())

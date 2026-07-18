@@ -1,0 +1,61 @@
+"""Shared fixtures. Every test that touches session_manager/config/
+session_history must use the isolate_state fixture — those modules write to
+hardcoded paths inside the repo (session_state.json, config.json,
+session_history.json), not an injectable temp dir, so tests redirect those
+module-level path constants to a pytest tmp_path instead, to guarantee real
+user data is never touched by a test run."""
+import copy
+
+import pytest
+
+import calendar_store
+import config
+import session_history
+import session_manager
+
+
+@pytest.fixture
+def isolate_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(session_manager, "STATE_PATH", str(tmp_path / "session_state.json"))
+    monkeypatch.setattr(session_history, "HISTORY_PATH", str(tmp_path / "session_history.json"))
+    monkeypatch.setattr(config, "CONFIG_PATH", str(tmp_path / "config.json"))
+
+    # session_manager._state is a module-level dict mutated in place across
+    # the whole process's life -- reset it to a clean default so one test's
+    # session doesn't leak into the next.
+    fresh_state = {
+        "isActive": False,
+        "startTime": None,
+        "endTime": None,
+        "lockMode": "soft",
+        "processWhitelist": [],
+        "domainWhitelist": [],
+        "violationCount": 0,
+        "violationLog": [],
+        "lastAcceptableProcess": None,
+        "domainWhitelistAdditions": [],
+        "processWhitelistAdditions": [],
+        "isPaused": False,
+        "pausedAt": None,
+        "frozenSecondsRemaining": None,
+        "source": "manual",
+        "eventId": None,
+        "eventTitle": None,
+    }
+    monkeypatch.setattr(session_manager, "_state", copy.deepcopy(fresh_state))
+    monkeypatch.setattr(session_manager, "_open_violation_index", {"process": None, "domain": None})
+    monkeypatch.setattr(session_manager, "_pending_natural_end", {"value": None})
+
+    yield
+
+
+@pytest.fixture
+def isolate_calendar_db(tmp_path, monkeypatch):
+    """calendar_store.py caches its sqlite3 connection in a module-level
+    _conn global -- redirecting DB_PATH alone isn't enough, since a
+    connection opened against the real calendar.db in an earlier test (or
+    an earlier run within this process) would still be reused. Reset both
+    so every test gets a fresh, isolated on-disk database."""
+    monkeypatch.setattr(calendar_store, "DB_PATH", str(tmp_path / "calendar.db"))
+    monkeypatch.setattr(calendar_store, "_conn", None)
+    yield
