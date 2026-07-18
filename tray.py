@@ -1,13 +1,12 @@
 """System tray icon setup and menu."""
-import tkinter as tk
-
 import pystray
 from PIL import Image, ImageDraw
 
 import calendar_gui
-import gui_thread
 import history_gui
 import picker_gui
+import qt_gui_thread
+import qt_ui.nuclear_dialog as nuclear_dialog
 import session_manager
 
 
@@ -67,7 +66,7 @@ def format_end_summary(summary):
     return f"{prefix}. {summary['violationCount']} violation(s): {breakdown}"
 
 
-def _build_nuclear_reason_dialog(root, icon):
+def _open_nuclear_reason_dialog(icon):
     # No session running — nothing to nuke, nothing to explain. Skip the
     # prompt so clicking the menu item with no active session is still a
     # harmless no-op, same as it was before this dialog existed.
@@ -75,48 +74,7 @@ def _build_nuclear_reason_dialog(root, icon):
         summary = session_manager.end_session(end_type="nuclear")
         icon.notify(format_end_summary(summary), title="Carmen Focus")
         return
-
-    win = tk.Toplevel(root)
-    win.title("Carmen Focus — Nuclear End")
-    win.geometry("360x180")
-    win.attributes("-topmost", True)
-
-    tk.Label(
-        win,
-        text="Why are you ending this session early?",
-        font=("Segoe UI", 10),
-        justify="center",
-        wraplength=320,
-        pady=10,
-    ).pack()
-
-    reason_var = tk.StringVar(master=win)
-    entry = tk.Entry(win, textvariable=reason_var, width=40)
-    entry.pack(pady=(0, 6))
-    entry.focus_set()
-
-    status_label = tk.Label(win, text="", font=("Segoe UI", 9), fg="#c62828")
-    status_label.pack()
-
-    def confirm():
-        reason = reason_var.get().strip()
-        if not reason:
-            status_label.config(text="Enter a reason before ending.")
-            return
-        summary = session_manager.end_session(end_type="nuclear", reason=reason)
-        icon.notify(format_end_summary(summary), title="Carmen Focus")
-        icon.update_menu()
-        win.destroy()
-
-    def cancel():
-        win.destroy()
-
-    button_frame = tk.Frame(win)
-    button_frame.pack(pady=14)
-    tk.Button(button_frame, text="End Session (Nuclear)", command=confirm).pack(side="left", padx=6)
-    tk.Button(button_frame, text="Cancel", command=cancel).pack(side="left", padx=6)
-
-    entry.bind("<Return>", lambda e: confirm())
+    nuclear_dialog.open_nuclear_reason_dialog(icon, format_end_summary)
 
 
 def build_tray_icon(on_quit):
@@ -138,7 +96,7 @@ def build_tray_icon(on_quit):
         # why before it happens so the reason lands in session_history.json
         # alongside it, instead of a bare "someone ended it early" with no
         # context by the time anyone reviews the log.
-        gui_thread.run_on_gui_thread(lambda root: _build_nuclear_reason_dialog(root, icon))
+        qt_gui_thread.run_on_gui_thread(lambda: _open_nuclear_reason_dialog(icon))
 
     def on_view_history(icon, item):
         history_gui.open_history_viewer()
