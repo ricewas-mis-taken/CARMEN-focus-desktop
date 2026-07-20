@@ -8,6 +8,7 @@ import threading
 
 from PySide6.QtWidgets import QApplication
 
+import autostart
 import calendar_scheduler
 import calendar_toast
 import config
@@ -32,6 +33,7 @@ def _load_stylesheet(app):
 def main():
     config.load_config()
     calendar_toast.set_app_id()
+    autostart.ensure_autostart_registered()
 
     # QApplication must be constructed here, on what becomes "the Qt main
     # thread" (this thread), before qt_gui_thread.start() and before any

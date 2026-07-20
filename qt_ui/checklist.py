@@ -47,12 +47,24 @@ def build_checklist(items, checked_keys, key_fn=None, label_fn=None, height=180)
 
     checkboxes_by_key = {}
 
+    def _apply_checked_style(checkbox, is_checked):
+        checkbox.setStyleSheet("color: #2e7d32; font-weight: 600;" if is_checked else "")
+
     def add_row(key, label, checked):
         key_lower = key.lower()
         if key_lower in checkboxes_by_key:
+            # A later add_row() call for the same key (e.g. the installed-
+            # apps scan finding an exe that a "quick re-add" row already
+            # added unchecked) should still be able to check it -- only
+            # skip re-adding the row itself, not the checked state.
+            if checked:
+                existing_checkbox, _ = checkboxes_by_key[key_lower]
+                existing_checkbox.setChecked(True)
             return
         checkbox = QCheckBox(label)
         checkbox.setChecked(checked)
+        _apply_checked_style(checkbox, checked)
+        checkbox.toggled.connect(lambda is_checked, cb=checkbox: _apply_checked_style(cb, is_checked))
         layout.insertWidget(layout.count() - 1, checkbox)
         checkboxes_by_key[key_lower] = (checkbox, key)
 

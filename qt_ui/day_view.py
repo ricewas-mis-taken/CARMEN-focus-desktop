@@ -10,7 +10,7 @@ Column layout for overlapping/partially-overlapping events comes from
 qt_ui/day_layout.py, ported verbatim from the Tk version -- this module
 only owns the rendering, not the overlap math.
 """
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainterPath, QPen
@@ -64,6 +64,12 @@ class DayView(QWidget):
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._view.setBackgroundBrush(QColor("#FFFFFF"))
         layout.addWidget(self._view, 1)
+
+        self._now_line = None
+        self._now_timer = QTimer(self)
+        self._now_timer.setInterval(30_000)
+        self._now_timer.timeout.connect(self._update_now_line)
+        self._now_timer.start()
 
     def show_date(self, selected_date):
         self._selected_date = selected_date
@@ -146,6 +152,18 @@ class DayView(QWidget):
             # viewport dimensions at all) is what makes this correct
             # regardless of whether layout has settled by this point.
             QTimer.singleShot(0, lambda: self._view.verticalScrollBar().setValue(int(target_y)))
+
+        if selected == date.today():
+            now = datetime.now()
+            y = ((now.hour * 60 + now.minute) / 60) * HOUR_HEIGHT
+            line = self._scene.addLine(0, y, SCENE_WIDTH, y, QPen(QColor("#E5484D"), 2))
+            line.setZValue(10)
+
+    def _update_now_line(self):
+        # Only re-renders while today's schedule is on screen -- viewing any
+        # other date doesn't need the redline, so skip the rebuild entirely.
+        if self._selected_date == date.today():
+            self._render()
 
 
 class _EventBlockItem(QGraphicsItem):
