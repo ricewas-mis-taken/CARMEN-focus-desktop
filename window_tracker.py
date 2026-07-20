@@ -10,6 +10,21 @@ import session_manager
 
 POLL_INTERVAL_SECONDS = 1.5
 
+# Some apps (observed with Discord) don't actually leave the foreground when
+# hard_lock_redirect() minimizes them -- a stray popup/overlay window belonging
+# to the same process regrabs focus almost immediately, or the redirect's
+# SetForegroundWindow race loses to the app re-asserting itself. Since the
+# hard-lock branch below resets last_flagged_process to None right after
+# redirecting (so a genuine re-open by the user still counts as a fresh
+# violation), a process that never actually leaves foreground was retriggering
+# hard_lock_redirect() on *every* poll tick -- each call re-issuing
+# SW_MINIMIZE/SetForegroundWindow (visible as the app's window flashing) and
+# spawning another lock overlay (visible as several piling up on screen) every
+# 1.5s for as long as it stayed stuck. This cooldown limits how often the same
+# offending process can be redirected, without touching how often violations
+# are recorded.
+HARD_REDIRECT_COOLDOWN_SECONDS = POLL_INTERVAL_SECONDS * 3
+
 
 def get_active_window():
     hwnd = win32gui.GetForegroundWindow()
@@ -70,6 +85,9 @@ def run_polling_loop(stop_event, on_session_end=None, tray_icon=None):
     """
     last_flagged_process = None
     last_menu_state = None
+    # {"process": <name>, "time": <time.time() of last redirect>} -- see
+    # HARD_REDIRECT_COOLDOWN_SECONDS above.
+    last_hard_redirect = {"process": None, "time": 0.0}
 
     while not stop_event.is_set():
         try:
@@ -110,7 +128,15 @@ def run_polling_loop(stop_event, on_session_end=None, tray_icon=None):
                         session_manager.record_violation(process_name)
                         lock_mode = session_manager.get_lock_mode()
                         if lock_mode == "hard":
-                            enforcer.hard_lock_redirect(process_name)
+                            now = time.time()
+                            recently_redirected = (
+                                last_hard_redirect["process"] == process_name
+                                and (now - last_hard_redirect["time"]) < HARD_REDIRECT_COOLDOWN_SECONDS
+                            )
+                            if not recently_redirected:
+                                enforcer.hard_lock_redirect(process_name)
+                                last_hard_redirect["process"] = process_name
+                                last_hard_redirect["time"] = now
                             # hard_lock_redirect() forces focus back to the
                             # whitelisted app right here, so the dedupe check
                             # above must not keep treating this process as
@@ -119,7 +145,9 @@ def run_polling_loop(stop_event, on_session_end=None, tray_icon=None):
                             # whitelisted app (which is what normally resets
                             # this via record_acceptable), the reopened app
                             # would otherwise compare equal and get skipped,
-                            # silently defeating hard lock.
+                            # silently defeating hard lock. The cooldown above
+                            # (not this reset) is what stops a stuck-in-
+                            # foreground app from spamming redirects/overlays.
                             last_flagged_process = None
                         else:
                             enforcer.soft_lock_warning(process_name)

@@ -3,9 +3,24 @@
 enforcement UI. Verifies window flags (frameless, always-on-top, non-modal),
 the double-close guard, and the offending-process-name-gated Whitelist
 button, without needing a real session or the real polling thread."""
+import pytest
 from PySide6.QtCore import Qt
 
 import qt_ui.enforcer_overlay as enforcer_overlay
+
+
+@pytest.fixture(autouse=True)
+def clear_open_overlays():
+    """_open_windows is a module-level set enforcer_overlay.py relies on to
+    count currently-open overlays for cascade positioning -- a previous
+    test's overlay can still be sitting in it here since Qt only actually
+    destroys a closed widget (firing .destroyed, which is what normally
+    discards it) once deleteLater()'s event gets processed, not synchronously
+    on close(). Without resetting this, one test's leftover overlay would
+    silently shift where the next test's "first" overlay lands."""
+    enforcer_overlay._open_windows.clear()
+    yield
+    enforcer_overlay._open_windows.clear()
 
 
 def test_overlay_is_frameless_topmost_and_non_modal(qtbot, isolate_state):
@@ -55,6 +70,38 @@ def test_overlay_auto_closes_after_duration(qtbot, isolate_state):
     qtbot.addWidget(win)
 
     qtbot.waitUntil(lambda: win._closed, timeout=2000)
+
+
+def test_second_overlay_cascades_away_from_first(qtbot, isolate_state):
+    """Regression test: two overlays open at once (e.g. two different
+    offending apps in quick succession) used to both land dead-center on top
+    of each other, indistinguishable and each stealing focus back from the
+    other every 50ms -- the same "flashing" symptom as the redirect-storm
+    bug in window_tracker.py. The first stays centered; a second one open at
+    the same time must land somewhere else."""
+    first = enforcer_overlay.build_overlay("first", duration_ms=5000)
+    qtbot.addWidget(first)
+    second = enforcer_overlay.build_overlay("second", duration_ms=5000)
+    qtbot.addWidget(second)
+
+    assert first.pos() != second.pos()
+
+    first.close()
+    second.close()
+
+
+def test_overlay_alone_is_still_centered(qtbot, isolate_state):
+    win = enforcer_overlay.build_overlay("only one", duration_ms=200)
+    qtbot.addWidget(win)
+
+    from PySide6.QtWidgets import QApplication
+    screen = QApplication.primaryScreen().availableGeometry()
+    expected_x = screen.x() + (screen.width() - win.width()) // 2
+    expected_y = screen.y() + (screen.height() - win.height()) // 2
+    assert win.pos().x() == expected_x
+    assert win.pos().y() == expected_y
+
+    win.close()
 
 
 def test_whitelist_reason_dialog_requires_reason(qtbot, isolate_state):
