@@ -245,6 +245,8 @@ class FinishedTab(QWidget):
         source_note = ""
         if status.get("source") == "calendar-event" and status.get("eventTitle"):
             source_note = f"\nFrom calendar event: {status['eventTitle']}"
+        elif status.get("source") == "task" and status.get("eventTitle"):
+            source_note = f"\nTask: {status['eventTitle']}"
         self._status_label.setText(
             f"Active session{paused} — {minutes}m {seconds}s remaining\n"
             f"Lock mode: {status['lockMode']}   Violations: {status['violationCount']}"
