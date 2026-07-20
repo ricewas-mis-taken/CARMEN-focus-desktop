@@ -7,5 +7,6 @@ pillow
 python-dateutil
 winsdk
 PySide6
+watchdog
 pytest
 pytest-qt

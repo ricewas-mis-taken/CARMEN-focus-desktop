@@ -5,20 +5,25 @@ QApplication may create/touch widgets — see qt_gui_thread.py)."""
 import os
 import sys
 import threading
+import time
 
 from PySide6.QtWidgets import QApplication
 
+import api_server
 import auto_updater
 import autostart
 import calendar_scheduler
 import calendar_toast
 import config
+import dev_watcher
 import qt_gui_thread
+import singleinstance
 import tray
 import window_tracker
 from api_server import run_server
 
 stop_event = threading.Event()
+DEV_MODE = "--dev" in sys.argv[1:]
 
 STYLESHEET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "styles.qss")
 
@@ -32,6 +37,7 @@ def _load_stylesheet(app):
 
 
 def main():
+    singleinstance.acquire()
     config.load_config()
     calendar_toast.set_app_id()
     autostart.ensure_autostart_registered()
@@ -69,11 +75,37 @@ def main():
     # window_tracker.run_polling_loop's on_session_end).
     icon = tray.build_tray_icon(on_quit)
 
+    def on_external_quit():
+        # Lets a future instance's singleinstance.acquire() ask this process
+        # to shut down cleanly over loopback HTTP (POST /internal/quit)
+        # instead of hard-killing it -- see singleinstance.py for why that
+        # distinction matters. Needs icon.stop() alongside on_quit(), same
+        # as on_quit_clicked in tray.py and on_dev_restart below -- on_quit()
+        # alone stops the Qt loop but never calls Shell_NotifyIcon(NIM_DELETE),
+        # so without this the tray icon outlives the process as a ghost icon
+        # exactly like a hard kill would.
+        on_quit()
+        icon.stop()
+
+    api_server.register_quit_callback(on_external_quit)
+
     # Reuses on_quit's exact shutdown path -- the only difference between a
     # user-initiated Quit and an auto-update restart is what main() does
     # after app.exec() returns (os._exit vs. os.execv into the freshly
     # pulled code; see below).
     auto_updater.start(stop_event, on_quit)
+
+    if DEV_MODE:
+        def on_dev_restart():
+            # Same shutdown path as a normal Quit/auto-update restart, plus
+            # an explicit icon.stop() (normally left to on_quit_clicked in
+            # tray.py) -- without it the shell notify icon isn't removed
+            # before the process image is replaced by os.execv below, and
+            # Explorer leaves a ghost icon behind until moused over.
+            on_quit()
+            icon.stop()
+
+        dev_watcher.start(on_dev_restart)
 
     def on_session_end(summary):
         # A real Windows toast (calendar_toast, same mechanism calendar_scheduler
@@ -100,12 +132,22 @@ def main():
     exit_code = app.exec()  # main thread blocks here instead of icon.run()
 
     stop_event.set()
-    if auto_updater.restart_was_requested():
+    if auto_updater.restart_was_requested() or dev_watcher.restart_was_requested():
         # Re-exec in place (same PID, fresh interpreter) rather than
         # spawning a new process and exiting this one -- avoids a race
         # where the child tries to rebind api_server's port before this
-        # process has actually released it.
+        # process has actually released it. The lock file already holds
+        # this PID, so singleinstance needs no update across the re-exec.
+        #
+        # A short pause first: app.exec() returning means Qt's loop is
+        # done and the tray icon's Quit callback has run, but the daemon
+        # threads (Flask's listener socket in particular) are still
+        # unwinding on the OS's own schedule -- this gives the port a
+        # moment to actually free up before the fresh interpreter tries to
+        # rebind it.
+        time.sleep(0.3)
         os.execv(sys.executable, [sys.executable] + sys.argv)
+    singleinstance.release()
     os._exit(exit_code)
 
 

@@ -28,6 +28,8 @@ page — /apps/installed and /whitelist/apps remain here as the same API
 surface for any other caller (e.g. Carmen) to drive the same picks
 programmatically.
 """
+import threading
+
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
@@ -43,6 +45,30 @@ app = Flask(__name__)
 # chrome-extension:// origin (the browser extension) alongside anything else,
 # since the server only ever listens on 127.0.0.1 regardless.
 CORS(app, resources={r"/*": {"origins": "*"}})
+
+API_PORT = 5847
+
+# Set by main.py once its on_quit closure exists (tray icon removal, Qt
+# event loop teardown, etc.) — lets singleinstance.py ask a still-running
+# instance to shut itself down cleanly over loopback HTTP instead of having
+# a brand-new instance hard-kill it and leave its tray icon/socket behind.
+_quit_callback = None
+
+
+def register_quit_callback(fn):
+    global _quit_callback
+    _quit_callback = fn
+
+
+@app.route("/internal/quit", methods=["POST"])
+def internal_quit():
+    # Runs the real on_quit() on its own thread rather than inline in this
+    # request handler -- on_quit() blocks on Qt/pystray teardown, which
+    # would otherwise hold the HTTP response (and this request's worker
+    # thread) open until the process is most of the way through exiting.
+    if _quit_callback is not None:
+        threading.Thread(target=_quit_callback, daemon=True).start()
+    return jsonify({"ok": True})
 
 
 @app.route("/health", methods=["GET"])
@@ -250,4 +276,4 @@ def whitelist_domains_add():
 
 
 def run_server():
-    app.run(host="127.0.0.1", port=5847, debug=False, use_reloader=False)
+    app.run(host="127.0.0.1", port=API_PORT, debug=False, use_reloader=False)
