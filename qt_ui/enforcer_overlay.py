@@ -37,6 +37,16 @@ import session_manager
 # removed on close().
 _open_windows = set()
 
+# If a second violation fires before the first overlay finishes (e.g. two
+# different offending apps in quick succession, or a soft-lock warning's 5s
+# window outlasting the poll interval), stacking every overlay dead-center
+# made them indistinguishable and turned into the same "flashing" look as
+# window_tracker.py's redirect-storm bug. Each additional overlay open at
+# construction time cascades further from center instead; the very first one
+# (no others open yet) always still lands exactly centered.
+_CASCADE_OFFSET_PX = 46
+_CASCADE_MAX_STEPS = 6
+
 
 def build_overlay(message, duration_ms, offending_process_name=None):
     win = _LockOverlay(message, duration_ms, offending_process_name)
@@ -68,7 +78,7 @@ class _LockOverlay(QWidget):
         if offending_process_name:
             height += 40
         self.resize(width, height)
-        self._center_on_screen(width, height)
+        self._position_window(width, height)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 16)
@@ -105,10 +115,29 @@ class _LockOverlay(QWidget):
         self._tick_timer.start(50)
         self._tick()
 
-    def _center_on_screen(self, width, height):
+    def _position_window(self, width, height):
         screen = QApplication.primaryScreen().availableGeometry()
-        x = screen.x() + (screen.width() - width) // 2
-        y = screen.y() + (screen.height() - height) // 2
+        center_x = screen.x() + (screen.width() - width) // 2
+        center_y = screen.y() + (screen.height() - height) // 2
+
+        # Counts overlays already open at construction time -- build_overlay()
+        # only adds `self` to _open_windows *after* this runs, so index 0
+        # here always means "no other overlay is currently up", i.e. this one
+        # is centered exactly like before.
+        index = sum(1 for w in _open_windows if isinstance(w, _LockOverlay))
+        if index == 0:
+            self.move(center_x, center_y)
+            return
+
+        step = index % _CASCADE_MAX_STEPS
+        offset = _CASCADE_OFFSET_PX * (step + 1)
+        x = center_x + offset
+        y = center_y + offset
+
+        max_x = screen.x() + screen.width() - width
+        max_y = screen.y() + screen.height() - height
+        x = max(screen.x(), min(x, max_x))
+        y = max(screen.y(), min(y, max_y))
         self.move(x, y)
 
     def _on_whitelist_click(self, process_name):
