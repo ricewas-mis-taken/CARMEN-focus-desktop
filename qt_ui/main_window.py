@@ -48,8 +48,8 @@ class _MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Carmen Focus")
-        self.resize(980, 720)
-        self.setMinimumSize(700, 540)
+        self.resize(800, 800)
+        self.setMinimumSize(540, 540)
 
         root_layout = QHBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)

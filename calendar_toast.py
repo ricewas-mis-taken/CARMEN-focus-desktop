@@ -9,6 +9,8 @@ set_app_id() must run once at startup so ToastNotificationManager has an
 AppUserModelID to publish under at all.
 """
 import ctypes
+import os
+import sys
 
 from winsdk.windows.data.xml.dom import XmlDocument
 from winsdk.windows.ui.notifications import ToastNotification, ToastNotificationManager
@@ -28,6 +30,56 @@ def set_app_id():
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
     except Exception:
         logger.exception("set_app_id failed")
+    _ensure_start_menu_shortcut()
+
+
+def _ensure_start_menu_shortcut():
+    """SetCurrentProcessExplicitAppUserModelID alone isn't enough for an
+    unpackaged script run via `python main.py` -- Windows Notification
+    Platform only reliably renders a toast for an AUMID that's backed by a
+    Start Menu shortcut carrying the same System.AppUserModel.ID property.
+    Without one, ToastNotifier.show() raises nothing and just silently
+    drops the toast, which is why show_toast() looked like it was "working"
+    (no exception, ever) while nothing ever appeared on screen.
+
+    Idempotent: only writes the .lnk if it's missing or stale, so this is
+    cheap to call on every startup."""
+    try:
+        import pythoncom
+        from win32com.propsys import propsys, pscon
+        from win32com.shell import shell
+
+        start_menu = os.path.join(
+            os.environ["APPDATA"], "Microsoft", "Windows", "Start Menu", "Programs"
+        )
+        shortcut_path = os.path.join(start_menu, "Carmen Focus.lnk")
+        target = sys.executable
+        main_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), "main.py")
+        arguments = f'"{main_py}"'
+
+        if os.path.exists(shortcut_path):
+            existing = pythoncom.CoCreateInstance(
+                shell.CLSID_ShellLink, None, pythoncom.CLSCTX_INPROC_SERVER, shell.IID_IShellLink
+            )
+            existing.QueryInterface(pythoncom.IID_IPersistFile).Load(shortcut_path)
+            if existing.GetPath(0)[0] == target and existing.GetArguments() == arguments:
+                return  # already registered correctly, nothing to do
+
+        os.makedirs(start_menu, exist_ok=True)
+        shell_link = pythoncom.CoCreateInstance(
+            shell.CLSID_ShellLink, None, pythoncom.CLSCTX_INPROC_SERVER, shell.IID_IShellLink
+        )
+        shell_link.SetPath(target)
+        shell_link.SetArguments(arguments)
+        shell_link.SetWorkingDirectory(os.path.dirname(os.path.abspath(__file__)))
+
+        prop_store = shell_link.QueryInterface(propsys.IID_IPropertyStore)
+        prop_store.SetValue(pscon.PKEY_AppUserModel_ID, propsys.PROPVARIANTType(APP_ID))
+        prop_store.Commit()
+
+        shell_link.QueryInterface(pythoncom.IID_IPersistFile).Save(shortcut_path, True)
+    except Exception:
+        logger.exception("_ensure_start_menu_shortcut failed")
 
 
 def _get_notifier():
