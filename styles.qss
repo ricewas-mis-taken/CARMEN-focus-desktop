@@ -206,6 +206,9 @@ QLabel.OverflowLabel {
 }
 
 QFrame.TaskCard {
+    /* Background is set per-card in tasks_tab.py (tinted with the task's
+       own color) via an instance stylesheet, which takes precedence over
+       this rule -- this is just the fallback/border. */
     background: #FFFFFF;
     border: 1px solid #ECEEF1;
     border-radius: 12px;
@@ -218,6 +221,24 @@ QFrame.TaskCard:hover {
 QFrame.TaskCard[locked="true"] {
     background: #FAFBFC;
     border: 1px solid #ECEEF1;
+}
+
+QWidget#TasksGridBg {
+    background: #FFFFFF;
+}
+
+QPushButton.TaskDescriptionButton {
+    text-align: left;
+    border: none;
+    background: transparent;
+    padding: 0;
+    color: #5A6070;
+    font-size: 11px;
+}
+
+QPushButton.TaskDescriptionButton:hover {
+    color: #2B2F38;
+    text-decoration: underline;
 }
 
 QProgressBar.TaskProgressBar {
