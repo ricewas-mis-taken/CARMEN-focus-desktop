@@ -350,6 +350,7 @@ def _get_status_locked():
     return {
         "isActive": _state["isActive"],
         "isPaused": _state["isPaused"],
+        "startTime": _state["startTime"],
         "secondsRemaining": seconds_remaining,
         "lockMode": _state["lockMode"],
         "processWhitelist": list(_state["processWhitelist"]),

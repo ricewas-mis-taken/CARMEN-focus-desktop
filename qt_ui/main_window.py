@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from qt_ui.calendar_page import CalendarPage
 from qt_ui.finished_tab import FinishedTab
+from qt_ui.tasks_tab import TasksTab
 
 _win = None
 
@@ -68,6 +69,7 @@ class _MainWindow(QWidget):
 
         self._pages = {}
         self._add_page("calendar", CalendarPage())
+        self._add_page("tasks", TasksTab())
         self._add_page("finished", FinishedTab())
 
         self._show_tab("calendar")
@@ -90,7 +92,7 @@ class _MainWindow(QWidget):
 
         self._nav_group = QButtonGroup(self)
         self._nav_group.setExclusive(True)
-        nav_items = [("calendar", "📅  Calendar"), ("finished", "✅  Finished")]
+        nav_items = [("calendar", "📅  Calendar"), ("tasks", "🎯  Tasks"), ("finished", "✅  Finished")]
         for key, label in nav_items:
             button = QPushButton(label)
             button.setProperty("class", "NavButton")

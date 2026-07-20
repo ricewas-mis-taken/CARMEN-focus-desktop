@@ -204,3 +204,28 @@ QLabel.OverflowLabel {
     font-size: 10px;
     padding: 0px 6px;
 }
+
+QFrame.TaskCard {
+    background: #FFFFFF;
+    border: 1px solid #ECEEF1;
+    border-radius: 12px;
+}
+
+QFrame.TaskCard:hover {
+    border: 1px solid #5B8DEF;
+}
+
+QFrame.TaskCard[locked="true"] {
+    background: #FAFBFC;
+    border: 1px solid #ECEEF1;
+}
+
+QProgressBar.TaskProgressBar {
+    background: #F1F3F6;
+    border: none;
+    border-radius: 5px;
+}
+
+QProgressBar.TaskProgressBar::chunk {
+    border-radius: 5px;
+}
