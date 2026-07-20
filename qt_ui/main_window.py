@@ -7,6 +7,7 @@ nuclear end) now live at the top of Finished, since starting a session and
 reviewing finished ones are both part of the same day-to-day loop.
 """
 from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
@@ -45,12 +46,16 @@ def refresh_calendar_views():
     _win._pages["finished"].refresh()
 
 
+_NORMAL_SIZE = (800, 800)
+
+
 class _MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Carmen Focus")
-        self.resize(800, 800)
+        self.resize(*_NORMAL_SIZE)
         self.setMinimumSize(540, 540)
+        self._was_maximized = False
 
         root_layout = QHBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
@@ -108,3 +113,19 @@ class _MainWindow(QWidget):
 
     def _show_tab(self, key):
         self._stack.setCurrentWidget(self._pages[key])
+
+    def changeEvent(self, event):
+        # Qt restores a "restore down" (un-maximize) click to whatever
+        # normalGeometry() happened to be recorded as -- which drifts away
+        # from square if the window was ever resized (by the user dragging
+        # an edge, or a previous maximize/restore round-trip) while still
+        # maximized, or if the OS snapped it during the maximize animation.
+        # Re-asserting a fixed 800x800 right after the state flips back to
+        # Normal keeps "restore" always landing on the same square size
+        # instead of a stretched rectangle.
+        if event.type() == QEvent.WindowStateChange:
+            is_maximized = bool(self.windowState() & Qt.WindowMaximized)
+            if self._was_maximized and not is_maximized:
+                self.resize(*_NORMAL_SIZE)
+            self._was_maximized = is_maximized
+        super().changeEvent(event)

@@ -53,8 +53,9 @@ import tasks_store
 from qt_ui.task_editor import open_task_editor
 
 STATUS_REFRESH_MS = 1000
-CARD_MIN_WIDTH = 260
+CARD_WIDTH = 230
 CARDS_PER_ROW = 3
+WHITELIST_PREVIEW_COUNT = 3
 
 
 def _format_minutes(total_minutes):
@@ -77,9 +78,12 @@ class TasksTab(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setStyleSheet("background: #FFFFFF; border: none;")
         self._grid_container = QWidget()
+        self._grid_container.setObjectName("TasksGridBg")
         self._grid = QGridLayout(self._grid_container)
         self._grid.setSpacing(16)
+        self._grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         scroll.setWidget(self._grid_container)
         layout.addWidget(scroll, 1)
 
@@ -121,7 +125,7 @@ class TasksTab(QWidget):
         for index, task in enumerate(tasks):
             row, col = divmod(index, CARDS_PER_ROW)
             card = _TaskCard(task, on_changed=self.refresh)
-            self._grid.addWidget(card, row, col)
+            self._grid.addWidget(card, row, col, Qt.AlignLeft | Qt.AlignTop)
             self._cards[task["id"]] = card
         self._tick()
 
@@ -139,10 +143,16 @@ class _TaskCard(QFrame):
         self._on_changed = on_changed
         self._armed = False
         self._until_burnout = False
+        self._expanded = False
 
         self.setProperty("class", "TaskCard")
-        self.setMinimumWidth(CARD_MIN_WIDTH)
+        self.setFixedWidth(CARD_WIDTH)
         self.setCursor(Qt.PointingHandCursor)
+        color = self._task.get("color", "#5B8DEF")
+        self.setStyleSheet(
+            f"QFrame.TaskCard {{ background: {color}; border: 1px solid rgba(0,0,0,0.08); "
+            f"border-radius: 12px; }}"
+        )
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 14, 16, 14)
@@ -157,6 +167,7 @@ class _TaskCard(QFrame):
         content_layout = QVBoxLayout(self._content)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(8)
+        content_layout.addWidget(self._build_description_section())
         content_layout.addLayout(self._build_progress_section())
         content_layout.addLayout(self._build_vacation_section())
         outer.addWidget(self._content)
@@ -178,16 +189,79 @@ class _TaskCard(QFrame):
     def _build_header_row(self):
         row = QHBoxLayout()
         name_label = QLabel(self._task["name"])
-        name_label.setStyleSheet("font-size: 15px; font-weight: 700;")
+        name_label.setWordWrap(True)
+        name_label.setStyleSheet("font-size: 19px; font-weight: 700;")
         row.addWidget(name_label, 1)
 
-        gear = QPushButton("⚙")
-        gear.setFixedSize(26, 26)
-        gear.setProperty("class", "SecondaryButton")
-        gear.setToolTip("Edit task")
-        gear.clicked.connect(self._open_editor)
-        row.addWidget(gear)
+        # Hidden until the card is hovered (see enterEvent/leaveEvent below)
+        # so the idle card reads as a clean, decluttered tile.
+        self._gear_button = QPushButton("⚙")
+        self._gear_button.setFixedSize(26, 26)
+        self._gear_button.setProperty("class", "SecondaryButton")
+        self._gear_button.setToolTip("Edit task")
+        self._gear_button.clicked.connect(self._open_editor)
+        self._gear_button.setVisible(False)
+        row.addWidget(self._gear_button)
         return row
+
+    def enterEvent(self, event):
+        self._gear_button.setVisible(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._gear_button.setVisible(False)
+        super().leaveEvent(event)
+
+    def _build_description_section(self):
+        """Lock mode + a short preview of the whitelist, truncated with
+        "…etc" past WHITELIST_PREVIEW_COUNT entries. It's a QPushButton
+        (not a QLabel) specifically so a click on it is consumed here and
+        never bubbles up to the card's own mousePressEvent (arm/start) --
+        same trick the Start/Cancel/gear buttons already rely on."""
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        self._description_button = QPushButton()
+        self._description_button.setProperty("class", "TaskDescriptionButton")
+        self._description_button.setCursor(Qt.PointingHandCursor)
+        self._description_button.clicked.connect(self._toggle_expanded)
+        layout.addWidget(self._description_button)
+
+        self._description_full = QLabel()
+        self._description_full.setWordWrap(True)
+        self._description_full.setStyleSheet("font-size: 11px; color: #4A4F58;")
+        self._description_full.setVisible(False)
+        layout.addWidget(self._description_full)
+
+        self._refresh_description()
+        return container
+
+    def _whitelist_items(self):
+        return list(self._task.get("processWhitelist", [])) + list(self._task.get("domainWhitelist", []))
+
+    def _refresh_description(self):
+        lock_label = "Hard lock" if self._task.get("lockMode") == "hard" else "Soft lock"
+        items = self._whitelist_items()
+        if not items:
+            preview = "no whitelist set"
+        else:
+            preview = ", ".join(items[:WHITELIST_PREVIEW_COUNT])
+            if len(items) > WHITELIST_PREVIEW_COUNT:
+                preview += " …etc"
+        arrow = "▾" if self._expanded else "▸"
+        self._description_button.setText(f"{arrow} {lock_label} · {preview}")
+
+        if items:
+            self._description_full.setText("Whitelisted: " + ", ".join(items))
+        else:
+            self._description_full.setText("Nothing whitelisted for this task yet.")
+        self._description_full.setVisible(self._expanded)
+
+    def _toggle_expanded(self):
+        self._expanded = not self._expanded
+        self._refresh_description()
 
     def _build_progress_section(self):
         col = QVBoxLayout()
@@ -250,7 +324,7 @@ class _TaskCard(QFrame):
         layout.setSpacing(6)
 
         self._countdown_label = QLabel()
-        self._countdown_label.setStyleSheet("font-size: 13px; font-weight: 600;")
+        self._countdown_label.setStyleSheet("font-size: 22px; font-weight: 700;")
         layout.addWidget(self._countdown_label)
 
         button_row = QHBoxLayout()
