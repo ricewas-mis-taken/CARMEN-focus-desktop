@@ -14,6 +14,8 @@ Endpoints:
     GET  /apps/installed
     POST /whitelist/apps
     POST /whitelist/apps/add
+    GET  /whitelist/domains
+    POST /whitelist/domains
     POST /whitelist/domains/add
 
 This is the shared source of truth for focus session state: both this
@@ -219,6 +221,40 @@ def whitelist_apps():
     cfg["processWhitelist"] = list(process_whitelist)
     config.save_config(cfg)
     return jsonify({"processWhitelist": cfg["processWhitelist"]})
+
+
+@app.route("/whitelist/domains", methods=["GET"])
+def whitelist_domains_get():
+    """Returns config.json's global domainWhitelist — the same "manual/
+    on-demand default" processWhitelist already is. Meant for the browser
+    extension to poll so a domain-whitelist edit made on the desktop side
+    (calendar_gui.py's event editor defaults new focus profiles from this
+    same field) shows up on the extension side too."""
+    cfg = config.load_config()
+    return jsonify({"domainWhitelist": cfg.get("domainWhitelist", [])})
+
+
+@app.route("/whitelist/domains", methods=["POST"])
+def whitelist_domains_set():
+    """Overwrites config.json's global domainWhitelist — the domain
+    counterpart to POST /whitelist/apps. Meant to be called by the browser
+    extension whenever its own domain whitelist changes, so that edit is
+    reflected back into the desktop app (and from there, into any calendar
+    event's default domain picks) instead of the two sides silently
+    diverging. Deliberately separate from POST /whitelist/domains/add below,
+    which only ever touches the *active session's* domainWhitelist and
+    requires a reason — this endpoint is the same "just replace the saved
+    default" shape as /whitelist/apps, with no session or reason involved."""
+    body = request.get_json(force=True, silent=True) or {}
+    domain_whitelist = body.get("domain_whitelist")
+
+    if not isinstance(domain_whitelist, list) or not all(isinstance(d, str) for d in domain_whitelist):
+        return jsonify({"error": "domain_whitelist must be a list of strings"}), 400
+
+    cfg = config.load_config()
+    cfg["domainWhitelist"] = list(domain_whitelist)
+    config.save_config(cfg)
+    return jsonify({"domainWhitelist": cfg["domainWhitelist"]})
 
 
 @app.route("/whitelist/apps/add", methods=["POST"])
