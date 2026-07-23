@@ -12,7 +12,7 @@ only owns the rendering, not the overlap math.
 """
 from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import QRectF, Qt, QTimer
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QGraphicsDropShadowEffect,
@@ -40,6 +40,24 @@ MIN_BLOCK_DURATION = timedelta(minutes=(MIN_BLOCK_HEIGHT / HOUR_HEIGHT) * 60)
 # so a MIN_BLOCK_HEIGHT block still shows a clean line.
 MIN_DURATION_FOR_TEXT = timedelta(seconds=60)
 SCENE_WIDTH = 640
+# A handful of hours' worth -- enough to read as "a schedule", not a
+# recommendation to show the full 24-hour scene at once (that's what the
+# view's own scrolling is for).
+VIEW_HEIGHT_HINT = 400
+
+
+class _ScheduleGraphicsView(QGraphicsView):
+    """QGraphicsView.sizeHint() reflects the *whole scene's* size once a
+    scene is set (here, the full 24-hour timeline, HOUR_HEIGHT * 24 =
+    1248px) rather than a sensible "visible portion" -- even though this
+    view is meant to be scrolled, never shown in full. Left unbounded, that
+    huge sizeHint bubbles up through DayView -> the calendar page's
+    QSplitter and got applied to the whole main window during a native
+    title-bar drag, instantly stretching it into a tall rectangle. Capping
+    the hint here removes the number at its source."""
+
+    def sizeHint(self):
+        return QSize(SCENE_WIDTH, VIEW_HEIGHT_HINT)
 
 
 class DayView(QWidget):
@@ -58,11 +76,20 @@ class DayView(QWidget):
         layout.addWidget(self._title_label)
 
         self._scene = QGraphicsScene()
-        self._view = QGraphicsView(self._scene)
+        self._view = _ScheduleGraphicsView(self._scene)
         self._view.setRenderHint(self._view.renderHints())
         self._view.setFrameShape(QGraphicsView.NoFrame)
         self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._view.setBackgroundBrush(QColor("#FFFFFF"))
+        # sizeHint() alone wasn't enough to stop the window snapping to a
+        # tall rectangle on drag -- the scene itself is still set to the
+        # full 24-hour height (1248px, see _render() below) for the
+        # schedule's coordinate math, and whatever native mechanism causes
+        # the snap appears to key off that scene extent rather than the
+        # widget's declared sizeHint. A hard maximumHeight on the view
+        # itself, closer to the actual widget in question, is the second
+        # layer of defense against it.
+        self._view.setMaximumHeight(600)
         layout.addWidget(self._view, 1)
 
         self._now_line = None
