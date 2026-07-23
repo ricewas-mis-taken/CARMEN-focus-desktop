@@ -56,6 +56,14 @@ def main():
 
     qt_gui_thread.start()
 
+    if DEV_MODE:
+        # Opens the main window automatically on launch/dev-restart, purely
+        # a dev-loop convenience so window-geometry changes can be reverified
+        # without a manual tray-icon click each time -- never runs outside
+        # --dev.
+        import qt_ui.main_window as main_window
+        qt_gui_thread.run_on_gui_thread(main_window.open_main_window)
+
     api_thread = threading.Thread(target=run_server, daemon=True)
     api_thread.start()
 
